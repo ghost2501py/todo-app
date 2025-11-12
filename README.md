@@ -17,7 +17,7 @@ cd todo-app
 
 ### 2. Configure Environment Variables
 
-For demostration purposes, there is a .env file created from .env.example inside front and back
+For demo purposes, the .env file was created from .env.example in both front and back.
 
 ### 3. Run with Docker
 
