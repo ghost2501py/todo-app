@@ -1,10 +1,27 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { Task } from '../../types/task.types';
 
 // Mock services to avoid import.meta issues
 jest.mock('../../services/api.service');
 jest.mock('../../services/task.service');
+
+const mockUpdateTask = jest.fn();
+
+const mockTaskStore = {
+  loading: false,
+  updateTask: mockUpdateTask
+};
+
+jest.mock('../../stores/TaskStore', () => ({
+  get taskStore() {
+    return mockTaskStore;
+  }
+}));
+
+jest.mock('mobx-react-lite', () => ({
+  observer: (component: any) => component
+}));
 
 import { TaskItem } from '../../components/Tasks/TaskItem';
 
@@ -21,12 +38,55 @@ jest.mock('@/components/ui/card', () => ({
   CardFooter: ({ children }: any) => <div data-testid="card-footer">{children}</div>
 }));
 
+jest.mock('@/components/ui/input', () => ({
+  Input: ({ value, onChange, disabled, className, ...props }: any) => (
+    <input
+      data-testid="edit-title-input"
+      value={value}
+      onChange={onChange}
+      disabled={disabled}
+      className={className}
+      {...props}
+    />
+  )
+}));
+
+jest.mock('@/components/ui/textarea', () => ({
+  Textarea: ({ value, onChange, disabled, className, ...props }: any) => (
+    <textarea
+      data-testid="edit-description-textarea"
+      value={value}
+      onChange={onChange}
+      disabled={disabled}
+      className={className}
+      {...props}
+    />
+  )
+}));
+
+jest.mock('@/components/ui/button', () => ({
+  Button: ({ children, onClick, disabled, ...props }: any) => (
+    <button onClick={onClick} disabled={disabled} {...props}>
+      {children}
+    </button>
+  )
+}));
+
 jest.mock('../../components/Tasks/TaskActions', () => ({
-  TaskActions: ({ task }: any) => <div data-testid="task-actions">Actions for {task._id}</div>
+  TaskActions: ({ task, onEdit }: any) => (
+    <div data-testid="task-actions">
+      <button data-testid="edit-button" onClick={onEdit}>
+        Edit
+      </button>
+      Actions for {task._id}
+    </div>
+  )
 }));
 
 jest.mock('lucide-react', () => ({
-  Calendar: () => <span data-testid="calendar-icon">📅</span>
+  Calendar: () => <span data-testid="calendar-icon">📅</span>,
+  Save: () => <span data-testid="save-icon">💾</span>,
+  X: () => <span data-testid="x-icon">❌</span>
 }));
 
 describe('TaskItem', () => {
@@ -39,6 +99,11 @@ describe('TaskItem', () => {
     created_at: '2024-01-15T10:30:00Z',
     deleted_at: null
   };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockTaskStore.loading = false;
+  });
 
   describe('Rendering', () => {
     it('should render the task card', () => {
@@ -289,6 +354,292 @@ describe('TaskItem', () => {
       render(<TaskItem task={mockTask} />);
       const footer = screen.getByTestId('card-footer');
       expect(footer.textContent).toBeTruthy();
+    });
+  });
+
+  describe('Edit Mode', () => {
+    it('should enter edit mode when edit button is clicked', () => {
+      render(<TaskItem task={mockTask} />);
+      const editButton = screen.getByTestId('edit-button');
+      
+      fireEvent.click(editButton);
+      
+      expect(screen.getByTestId('edit-title-input')).toBeInTheDocument();
+      expect(screen.getByTestId('edit-description-textarea')).toBeInTheDocument();
+    });
+
+    it('should show input fields in edit mode', () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const titleInput = screen.getByTestId('edit-title-input');
+      const descriptionTextarea = screen.getByTestId('edit-description-textarea');
+      
+      expect(titleInput).toBeInTheDocument();
+      expect(descriptionTextarea).toBeInTheDocument();
+    });
+
+    it('should pre-populate fields with current task data', () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const titleInput = screen.getByTestId('edit-title-input') as HTMLInputElement;
+      const descriptionTextarea = screen.getByTestId('edit-description-textarea') as HTMLTextAreaElement;
+      
+      expect(titleInput.value).toBe('Test Task');
+      expect(descriptionTextarea.value).toBe('Test Description');
+    });
+
+    it('should show Save and Cancel buttons in edit mode', () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      expect(screen.getByText(/Guardar/i)).toBeInTheDocument();
+      expect(screen.getByText(/Cancelar/i)).toBeInTheDocument();
+    });
+
+    it('should hide TaskActions in edit mode', () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      expect(screen.queryByTestId('task-actions')).not.toBeInTheDocument();
+    });
+
+    it('should hide card title in edit mode', () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      expect(screen.queryByTestId('card-title')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Edit Mode Interactions', () => {
+    it('should update title when typing in input field', () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const titleInput = screen.getByTestId('edit-title-input') as HTMLInputElement;
+      fireEvent.change(titleInput, { target: { value: 'Updated Title' } });
+      
+      expect(titleInput.value).toBe('Updated Title');
+    });
+
+    it('should update description when typing in textarea', () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const descriptionTextarea = screen.getByTestId('edit-description-textarea') as HTMLTextAreaElement;
+      fireEvent.change(descriptionTextarea, { target: { value: 'Updated Description' } });
+      
+      expect(descriptionTextarea.value).toBe('Updated Description');
+    });
+
+    it('should exit edit mode when Cancel is clicked', () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const cancelButton = screen.getByText(/Cancelar/i);
+      fireEvent.click(cancelButton);
+      
+      expect(screen.queryByTestId('edit-title-input')).not.toBeInTheDocument();
+      expect(screen.getByTestId('card-title')).toBeInTheDocument();
+    });
+
+    it('should revert changes when Cancel is clicked', () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const titleInput = screen.getByTestId('edit-title-input') as HTMLInputElement;
+      fireEvent.change(titleInput, { target: { value: 'Changed Title' } });
+      
+      const cancelButton = screen.getByText(/Cancelar/i);
+      fireEvent.click(cancelButton);
+      
+      fireEvent.click(screen.getByTestId('edit-button'));
+      const newTitleInput = screen.getByTestId('edit-title-input') as HTMLInputElement;
+      expect(newTitleInput.value).toBe('Test Task');
+    });
+  });
+
+  describe('Save Functionality', () => {
+    it('should call updateTask with correct data on save', async () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const titleInput = screen.getByTestId('edit-title-input');
+      const descriptionTextarea = screen.getByTestId('edit-description-textarea');
+      
+      fireEvent.change(titleInput, { target: { value: 'Updated Title' } });
+      fireEvent.change(descriptionTextarea, { target: { value: 'Updated Description' } });
+      
+      const saveButton = screen.getByText(/Guardar/i);
+      fireEvent.click(saveButton);
+      
+      await waitFor(() => {
+        expect(mockUpdateTask).toHaveBeenCalledWith('1', {
+          title: 'Updated Title',
+          description: 'Updated Description'
+        });
+      });
+    });
+
+    it('should trim whitespace from title and description', async () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const titleInput = screen.getByTestId('edit-title-input');
+      const descriptionTextarea = screen.getByTestId('edit-description-textarea');
+      
+      fireEvent.change(titleInput, { target: { value: '  Trimmed Title  ' } });
+      fireEvent.change(descriptionTextarea, { target: { value: '  Trimmed Description  ' } });
+      
+      const saveButton = screen.getByText(/Guardar/i);
+      fireEvent.click(saveButton);
+      
+      await waitFor(() => {
+        expect(mockUpdateTask).toHaveBeenCalledWith('1', {
+          title: 'Trimmed Title',
+          description: 'Trimmed Description'
+        });
+      });
+    });
+
+    it('should exit edit mode after successful save', async () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const saveButton = screen.getByText(/Guardar/i);
+      fireEvent.click(saveButton);
+      
+      await waitFor(() => {
+        expect(screen.queryByTestId('edit-title-input')).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Validation', () => {
+    it('should show error if title is empty', async () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const titleInput = screen.getByTestId('edit-title-input');
+      fireEvent.change(titleInput, { target: { value: '' } });
+      
+      const saveButton = screen.getByText(/Guardar/i);
+      fireEvent.click(saveButton);
+      
+      await waitFor(() => {
+        expect(screen.getByText(/Título es requerido/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should show error if title is only whitespace', async () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const titleInput = screen.getByTestId('edit-title-input');
+      fireEvent.change(titleInput, { target: { value: '   ' } });
+      
+      const saveButton = screen.getByText(/Guardar/i);
+      fireEvent.click(saveButton);
+      
+      await waitFor(() => {
+        expect(screen.getByText(/Título es requerido/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should show error if title exceeds 200 characters', async () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const longTitle = 'a'.repeat(201);
+      const titleInput = screen.getByTestId('edit-title-input');
+      fireEvent.change(titleInput, { target: { value: longTitle } });
+      
+      const saveButton = screen.getByText(/Guardar/i);
+      fireEvent.click(saveButton);
+      
+      await waitFor(() => {
+        expect(screen.getByText(/Título debe tener menos de 200 caracteres/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should show error if description is empty', async () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const descriptionTextarea = screen.getByTestId('edit-description-textarea');
+      fireEvent.change(descriptionTextarea, { target: { value: '' } });
+      
+      const saveButton = screen.getByText(/Guardar/i);
+      fireEvent.click(saveButton);
+      
+      await waitFor(() => {
+        expect(screen.getByText(/Descripción es requerido/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should show error if description exceeds 1000 characters', async () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const longDescription = 'a'.repeat(1001);
+      const descriptionTextarea = screen.getByTestId('edit-description-textarea');
+      fireEvent.change(descriptionTextarea, { target: { value: longDescription } });
+      
+      const saveButton = screen.getByText(/Guardar/i);
+      fireEvent.click(saveButton);
+      
+      await waitFor(() => {
+        expect(screen.getByText(/Descripción debe tener menos de 1000 caracteres/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should not call updateTask if validation fails', async () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const titleInput = screen.getByTestId('edit-title-input');
+      fireEvent.change(titleInput, { target: { value: '' } });
+      
+      const saveButton = screen.getByText(/Guardar/i);
+      fireEvent.click(saveButton);
+      
+      await waitFor(() => {
+        expect(mockUpdateTask).not.toHaveBeenCalled();
+      });
+    });
+
+    it('should apply error styling to fields with validation errors', async () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const titleInput = screen.getByTestId('edit-title-input');
+      fireEvent.change(titleInput, { target: { value: '' } });
+      
+      const saveButton = screen.getByText(/Guardar/i);
+      fireEvent.click(saveButton);
+      
+      await waitFor(() => {
+        expect(titleInput).toHaveClass('border-destructive');
+      });
+    });
+
+    it('should clear errors when canceling', () => {
+      render(<TaskItem task={mockTask} />);
+      fireEvent.click(screen.getByTestId('edit-button'));
+      
+      const titleInput = screen.getByTestId('edit-title-input');
+      fireEvent.change(titleInput, { target: { value: '' } });
+      
+      const saveButton = screen.getByText(/Guardar/i);
+      fireEvent.click(saveButton);
+      
+      const cancelButton = screen.getByText(/Cancelar/i);
+      fireEvent.click(cancelButton);
+      
+      fireEvent.click(screen.getByTestId('edit-button'));
+      expect(screen.queryByText(/Título es requerido/i)).not.toBeInTheDocument();
     });
   });
 });

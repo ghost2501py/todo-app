@@ -3,13 +3,14 @@ import { observer } from 'mobx-react-lite';
 import { Task } from '../../types/task.types';
 import { taskStore } from '../../stores/TaskStore';
 import { Button } from '@/components/ui/button';
-import { Check, RotateCcw, Trash2 } from 'lucide-react';
+import { Check, RotateCcw, Trash2, Pencil } from 'lucide-react';
 
 interface TaskActionsProps {
   task: Task;
+  onEdit?: () => void;
 }
 
-export const TaskActions: React.FC<TaskActionsProps> = observer(({ task }) => {
+export const TaskActions: React.FC<TaskActionsProps> = observer(({ task, onEdit }) => {
   const handleToggleStatus = async () => {
     const newStatus = task.status === 'pending' ? 'completed' : 'pending';
     await taskStore.updateTask(task._id, { status: newStatus });
@@ -23,6 +24,15 @@ export const TaskActions: React.FC<TaskActionsProps> = observer(({ task }) => {
 
   return (
     <div className="flex gap-2">
+      <Button
+        onClick={onEdit}
+        disabled={taskStore.loading}
+        size="sm"
+        variant="outline"
+      >
+        <Pencil className="mr-2 h-4 w-4" />
+        Editar
+      </Button>
       <Button
         onClick={handleToggleStatus}
         disabled={taskStore.loading}
